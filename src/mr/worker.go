@@ -173,7 +173,7 @@ func dealWithMapTask(task *Task, mapf func(string, string) []KeyValue) {
 
 	// 把不同bucket的内容写入文件中去
 	for i := 0; i < nReduce; i++ {
-		rFile, err := os.Create(getTempFileName(task.ID, i))
+		rFile, err := os.Create(getTempFileName(task.ID, i)) //taskID保证了每个任务不会写到同一个文件里
 		if err != nil {
 			log.Println("failed to create file")
 		}
