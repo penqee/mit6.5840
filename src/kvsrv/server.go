@@ -45,18 +45,16 @@ func (kv *KVServer) Put(args *PutAppendArgs, reply *PutAppendReply) {
 
 	if value, ok := kv.history.Load(args.Id); ok {
 		reply.Value = value.(string)
-		log.Println(args.Tag)
+
 		return
 	}
 
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
-	old := kv.kvMap[args.Key]
-
+	reply.Value = kv.kvMap[args.Key]
+	kv.history.Store(args.Id, kv.kvMap[args.Key])
 	kv.kvMap[args.Key] = args.Value
-	reply.Value = old
-	kv.history.Store(args.Id, old)
 
 }
 
@@ -66,12 +64,10 @@ func (kv *KVServer) Append(args *PutAppendArgs, reply *PutAppendReply) {
 		kv.history.Delete(args.Id)
 		return
 	}
-
 	if value, ok := kv.history.Load(args.Id); ok {
 		reply.Value = value.(string)
 		return
 	}
-
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 

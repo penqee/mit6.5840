@@ -25,3 +25,18 @@
 
 ## 实验过程
 * https://l1zelk90cop.feishu.cn/docx/A2gSd2U4HoANpExnu1pcRoXNnNf?from=from_copylink
+
+# Lab2
+## 键值服务器
+## 实践过程 
+* https://l1zelk90cop.feishu.cn/docx/TA3rdo6gnoBcLFxBh8kcWs4cnzf?from=from_copylink
+* 图解：https://l1zelk90cop.feishu.cn/docx/LjGAdECg5ofHQHxgqfhccZTznCd?openbrd=1&doc_app_id=501&blockId=doxcnJK1nBB1Lbf4siLUI3n69xf&blockType=whiteboard&blockToken=SK5PwBUwThmxKZb244lcmYcznRc#doxcnJK1nBB1Lbf4siLUI3n69xf
+
+## Testing Distributed Systems for Linearizability
+* 线性化
+* 线性一致性检查
+* 线性化点
+* 最终一致性
+* 因果一致性
+* 分叉一致性
+* 序列化

@@ -7,7 +7,6 @@ import (
 	"6.5840/labrpc"
 )
 
-// 需要Clerk声明一个map或channel用来存储发送失败的请求，重新发送成功后清楚即可
 type RequestId int64
 
 type Clerk struct {
