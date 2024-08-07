@@ -48,3 +48,4 @@
 * 选举超时
 * 共享变量加锁
 * A通过比较term，B则加上对日志的相关操作
+* https://l1zelk90cop.feishu.cn/docx/WnMFdqK6Jo9kiLxygrVcWrFenhh?openbrd=1&doc_app_id=501&blockId=doxcnyftGIIbeZyp34WJiuUoz6f&blockType=whiteboard&blockToken=IILewMATEhUjf3bPmn7cAgHfnPg#doxcnyftGIIbeZyp34WJiuUoz6f

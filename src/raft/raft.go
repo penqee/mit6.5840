@@ -36,12 +36,12 @@ const (
 	HEARTBEAT        = 100 * time.Millisecond
 )
 
-type State int
+type State string
 
 const (
-	FOLLOWER State = iota
-	CANDIDATE
-	LEADER
+	FOLLOWER  = "FOLLOWER"
+	CANDIDATE = "CANDIDATE"
+	LEADER    = "LEADER"
 )
 
 // as each Raft peer becomes aware that successive log entries are
