@@ -1,48 +1,72 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"os"
+	"time"
+)
 
-
-//
 // Map functions return a slice of KeyValue.
-//
 type KeyValue struct {
 	Key   string
 	Value string
 }
 
-//
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
-//
 // main/mrworker.go calls this function.
-//
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
+	for {
+		req := CallTaskRequest()
+		switch req.Status {
+		case MAP:
+			DealWithMapTask(mapf, req)
+			CallTaskDone(req.Tid)
+		case REDUCE:
+			DealWithReduceTask(reducef, req)
+			CallTaskDone(req.Tid)
+		case QUIT:
+			CallTaskDone(req.Tid)
+			time.Sleep(time.Second)
+			os.Exit(0)
+		case NONETASK:
 
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+		default:
+			DebugPrintln("unknown task")
+		}
+	}
 
+	// switch {
+
+	// case MAP:
+	// 	DealWithMapTask(mapf, req)
+
+	// case REDUCE:
+	// 	DealWithReduceTask(reducef, req)
+
+	// case NONETASK:
+
+	// case QUIT:
+
+	// default:
+	// 	DebugPrintln("undefined task")
+	// }
 }
 
-//
 // example function to show how to make an RPC call to the coordinator.
 //
 // the RPC argument and reply types are defined in rpc.go.
-//
 func CallExample() {
 
 	// declare an argument structure.
@@ -67,11 +91,9 @@ func CallExample() {
 	}
 }
 
-//
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-//
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
@@ -88,4 +110,31 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 	fmt.Println(err)
 	return false
+}
+
+func CallTaskRequest() *Task {
+	args := &TaskRequestReq{}
+	reply := &TaskResponseResp{}
+
+	ok := call("Coordinator.TaskRequest", args, reply)
+	if ok {
+		DebugPrintln("reply = ", reply)
+	} else {
+		DebugPrintln("call failed\n")
+	}
+
+	return reply.Task
+}
+
+func CallTaskDone(tid int) {
+	args := &TaskDoneRequest{Tid: tid}
+	reply := &TaskDoneResponse{}
+
+	ok := call("Coordinator.TaskDone", args, reply)
+	if ok {
+		DebugPrintln("successfully call")
+	} else {
+		DebugPrintln("failed to call")
+	}
+
 }
