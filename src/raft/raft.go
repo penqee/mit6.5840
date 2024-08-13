@@ -313,8 +313,8 @@ type AppendEntriesArgs struct {
 
 // AppendEntriesReply 附加日志和心跳包的RPC回复参数
 type AppendEntriesReply struct {
-	Term    int  // 当前的任期号，⽤于领导⼈去更新⾃⼰
-	Success bool // 跟随者包含了匹配上 prevLogIndex 和 prevLogTerm 的⽇志时为真
+	Term    int
+	Success bool
 
 	ConfilctTerm  int
 	ConflictIndex int
@@ -547,11 +547,11 @@ func (rf *Raft) applyMsg() {
 
 func (rf *Raft) changeState(state State) {
 	if state == FOLLOWER {
-		DPrintf("node {%d} term {%d} change ==> follower\n", rf.me, rf.currentTerm)
+		DPrintf("node {%d} term {%d} change to follower\n", rf.me, rf.currentTerm)
 		rf.resetElectionTimeout()
 		rf.heartbeatTimer.Stop()
 	} else if state == LEADER {
-		DPrintf("node {%d} term {%d} change ==> leader\n", rf.me, rf.currentTerm)
+		DPrintf("node {%d} term {%d} change to leader\n", rf.me, rf.currentTerm)
 		lastLog := rf.getLastLog()
 		for i := 0; i < len(rf.peers); i++ {
 			rf.matchIndex[i], rf.nextIndex[i] = 0, lastLog.Index+1

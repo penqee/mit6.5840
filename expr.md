@@ -49,3 +49,11 @@
 * 共享变量加锁
 * A通过比较term，B则加上对日志的相关操作
 * https://l1zelk90cop.feishu.cn/docx/WnMFdqK6Jo9kiLxygrVcWrFenhh?openbrd=1&doc_app_id=501&blockId=doxcnyftGIIbeZyp34WJiuUoz6f&blockType=whiteboard&blockToken=IILewMATEhUjf3bPmn7cAgHfnPg#doxcnyftGIIbeZyp34WJiuUoz6f
+
+## safety : 某些节点可能不可用
+* election restriction ： 日志条目只会从leader流向follower。候选者的日志条目至少和集群多数中的任何其他日志一样最新才能获得选票
+* Committing entries from previous terms ：存储在大多服务器上的条目并不能保证一定提交了，仍有可能会被覆盖
+* Safety argument
+* Follower and candidates crashes ： 处理方式比较简单，cranshed后rpc调用就会失败，重启后接受rpc请求在响应前崩溃也不会成功响应
+* Timing and availability ： broadcastTime ≪ electionTimeout ≪ MTBF
+* https://l1zelk90cop.feishu.cn/docx/C6TMduodHooxBIxhb6Nc8MdVnVH?from=from_copylink
