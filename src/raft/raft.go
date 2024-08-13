@@ -20,6 +20,8 @@ package raft
 
 import (
 	//	"bytes"
+
+	"bytes"
 	"math"
 	"math/rand"
 	"sort"
@@ -28,11 +30,13 @@ import (
 	"time"
 
 	//	"6.5840/labgob"
+
+	"6.5840/labgob"
 	"6.5840/labrpc"
 )
 
 const (
-	ELECTION_TIMEOUT = 300
+	ELECTION_TIMEOUT = 200
 	HEARTBEAT        = 100 * time.Millisecond
 )
 
@@ -123,6 +127,21 @@ func (rf *Raft) GetState() (int, bool) {
 // after you've implemented snapshots, pass the current snapshot
 // (or nil if there's not yet a snapshot).
 func (rf *Raft) persist() {
+
+	// rf.mu.Lock()
+	// defer rf.mu.Unlock()
+
+	buf := new(bytes.Buffer)
+
+	encoder := labgob.NewEncoder(buf)
+	encoder.Encode(rf.votedFor)
+	encoder.Encode(rf.currentTerm)
+	encoder.Encode(rf.logs)
+
+	raftState := buf.Bytes()
+
+	rf.persister.Save(raftState, nil)
+
 	// Your code here (2C).
 	// Example:
 	// w := new(bytes.Buffer)
@@ -138,6 +157,21 @@ func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
 	}
+
+	buf := bytes.NewBuffer(data)
+	decoder := labgob.NewDecoder(buf)
+	var votedFor int
+
+	var currentTerm int
+	var logs []Entry
+
+	if decoder.Decode(&votedFor) != nil || decoder.Decode(&currentTerm) != nil || decoder.Decode(&logs) != nil {
+		panic("read Persist error, please retry again")
+	}
+	rf.logs = logs
+	rf.currentTerm = currentTerm
+	rf.votedFor = votedFor
+
 	// Your code here (2C).
 	// Example:
 	// r := bytes.NewBuffer(data)
@@ -183,12 +217,10 @@ type RequestVoteReply struct {
 // example RequestVote RPC handler.
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	// 接收者实现：
-	// 1. 如果 term < currentTerm 返回 false （5.2 节）
-	// 2. 如果 votedFor 为空或者为 candidateId，并且候选⼈的日志至少和自己⼀样新，那么就投票给他（5.2 节， 5.4 节）
+
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
+	defer rf.persist()
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm // 有更新的当前任期号
 		reply.VoteGranted = false
@@ -196,7 +228,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	}
 
 	if args.Term > rf.currentTerm {
-		rf.changeState(FOLLOWER)
+		if rf.state != FOLLOWER {
+			rf.changeState(FOLLOWER)
+		}
+
 		rf.currentTerm, rf.votedFor = args.Term, -1
 	}
 	// 执行到这里说明 请求参数中的任期大于等于当前节点的任期
@@ -280,6 +315,9 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term    int  // 当前的任期号，⽤于领导⼈去更新⾃⼰
 	Success bool // 跟随者包含了匹配上 prevLogIndex 和 prevLogTerm 的⽇志时为真
+
+	ConfilctTerm  int
+	ConflictIndex int
 }
 
 // 发送追加日志和心跳包的RPC请求
@@ -292,8 +330,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	DPrintf("node {%d} term {%d} receive new log length %d\n", rf.me, rf.currentTerm, len(args.Logs))
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-
-	// 任期过期 什么也不做
+	defer rf.persist()
+	// 任期过期 什么也不做， 也就是无效的请求即可了
 	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.Success = false
@@ -306,13 +344,6 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.currentTerm = args.Term
 	reply.Term = rf.currentTerm
 
-	// 2B 判断日志是否匹配
-	// 说明是心跳包 直接返回即可
-	// 下面这句话不能够加入
-	//if len(args.Logs) == 0 {
-	//	reply.Success = true
-	//	return
-	//}
 	if args.PreLogIndex < rf.getFirstLog().Index {
 		reply.Term, reply.Success = 0, false
 		return
@@ -321,13 +352,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	DPrintf("node {%d} term {%d} start judge whether append log. rf.logs:%v,args.Logs:%v\n", rf.me, rf.currentTerm, rf.logs, args.Logs)
 	// 如果上一条日志索引对应的日志 在本节点的日志队列中不存在 或者无法对应上 那么返回false 表示日志队列不匹配
 	if args.PreLogIndex > rf.getLastLog().Index || rf.logs[args.PreLogIndex-rf.getFirstLog().Index].Term != args.PreLogTerm {
+		lastIndex := rf.getLastLog().Index
+		if lastIndex < args.PreLogIndex {
+			reply.ConfilctTerm = -1
+			reply.ConflictIndex = lastIndex + 1
+		} else {
+			firstIndex := rf.getFirstLog().Index
+			reply.ConfilctTerm = rf.logs[args.PreLogIndex-firstIndex].Term
+			index := args.PreLogIndex - 1
+			for index >= firstIndex && rf.logs[index-firstIndex].Term == reply.ConfilctTerm {
+				index--
+			}
+			reply.ConflictIndex = index
+		}
+
 		reply.Success = false
 		return
 	}
 
 	DPrintf("node {%d} term {%d} start append log\n", rf.me, rf.currentTerm)
-	// 论文原话：如果已经存在的日志条目和新的产生冲突（索引值相同但是任期号不同），删除这⼀条
-	// 和之后所有的 （5.3节）
+
 	firstIndex := rf.cropLogs(args)
 	// 附加日志
 	rf.logs = append(rf.logs, args.Logs[firstIndex:]...)
@@ -360,7 +404,6 @@ func (rf *Raft) cropLogs(args *AppendEntriesArgs) int {
 		}
 	}
 
-	// 遍历到这说明所有日志都匹配 可能是接收到了重传的日志队列 那么本地日志队列不需要加入新的日志
 	return len(args.Logs)
 }
 
@@ -372,6 +415,7 @@ func (rf *Raft) appendLog(command interface{}) Entry {
 	}
 
 	rf.logs = append(rf.logs, entry)
+	rf.persist()
 	return entry
 }
 
@@ -443,8 +487,6 @@ func (rf *Raft) ticker() {
 
 		// Your code here (2A)
 		// Check if a leader election should be started.
-		// 广播时间 << 选举超时时间 << 平均故障时间
-		// 测试器要求领导者发送心跳rpc每秒不超过10次 所以广播时间最小100ms/次
 
 		select {
 		case <-rf.electionTimer.C:
@@ -459,12 +501,14 @@ func (rf *Raft) ticker() {
 
 		case <-rf.heartbeatTimer.C:
 			// 只有领导人可以发送心跳包
+			rf.mu.Lock()
 			if rf.state == LEADER {
 				DPrintf("node {%d} term {%d} send heartbeat\n", rf.me, rf.currentTerm)
-				rf.mu.Lock()
+
 				rf.sendEntries()
-				rf.mu.Unlock()
+
 			}
+			rf.mu.Unlock()
 		}
 
 	}
@@ -479,6 +523,7 @@ func (rf *Raft) applyMsg() {
 		}
 		applyEntries := make([]Entry, rf.commitIndex-rf.lastApplied)
 		firstIndex := rf.getFirstLog().Index
+		commitIndex := rf.commitIndex
 		copy(applyEntries, rf.logs[rf.lastApplied-firstIndex+1:rf.commitIndex-firstIndex+1]) //从现存有数据的位置的后一个开始
 		rf.mu.Unlock()
 
@@ -493,7 +538,7 @@ func (rf *Raft) applyMsg() {
 
 		rf.mu.Lock()
 		if rf.commitIndex > rf.lastApplied {
-			rf.lastApplied = rf.commitIndex
+			rf.lastApplied = commitIndex
 		}
 		rf.mu.Unlock()
 
@@ -525,7 +570,7 @@ func (rf *Raft) requestVotes() {
 	rf.currentTerm += 1 // 任期加一
 	rf.votedFor = rf.me // 自己给自己投票
 	numVotes := 1       // 自己给自己投票
-
+	rf.persist()
 	for i := range rf.peers {
 		if rf.me != i {
 
@@ -555,7 +600,6 @@ func (rf *Raft) requestVotes() {
 						if reply.VoteGranted {
 							numVotes += 1
 
-							// 一旦票数达到 立即转换成leader 并给其他节点发送心跳包 否
 							if numVotes > totalVotes/2 {
 								// 本节点当选Leader 选举停止 开始发送心跳包
 								rf.changeState(LEADER)
@@ -568,8 +612,9 @@ func (rf *Raft) requestVotes() {
 						if reply.Term > rf.currentTerm {
 							rf.currentTerm = reply.Term
 							rf.votedFor = -1
-							// 要强制转换成跟随者
+							// 要转换成跟随者，这个才是依据原文的
 							rf.changeState(FOLLOWER)
+							rf.persist()
 						}
 					}
 
@@ -601,28 +646,35 @@ func (rf *Raft) sendEntries() {
 				if rf.sendAppendEntries(peer, args, reply) {
 					rf.mu.Lock()
 					// 2A
-					// 收到回复 对方的任期比当前leader的任期大 说明当前leader已经过期 变成follower
-					// 当前节点变成了follower 然后 后面的请求发送过来的时候当前节点的任期已经修改了 所以会进入else中的语句 然后修改nextIndex导致发生错误
-					// 不排除在此期间重新当选为leader然后导致错误的可能 所以任期也要判断一下
+
 					if rf.state == LEADER && rf.currentTerm == args.Term {
 						if reply.Term > rf.currentTerm {
 							rf.currentTerm = reply.Term
 							rf.votedFor = -1
 							rf.changeState(FOLLOWER)
+							rf.persist()
 						} else {
 							// 2B 对方任期等于当前任期 或小于当前任期 那么判断日志接收的情况
 							if reply.Success {
-								// 匹配的日志索引
+
 								rf.matchIndex[peer] = args.PreLogIndex + len(args.Logs)
-								// 日志成功被接收 下一个应该返给这个节点的日志索引+1
+
 								rf.nextIndex[peer] = rf.matchIndex[peer] + 1
-								// 论文原话：如果存在⼀个满⾜ N > commitIndex 的 N，并且⼤多数的 matchIndex[i] ≥ N
-								// 成⽴，并且 log[N].term == currentTerm 成⽴，那么令 commitIndex 等于这个 N
-								//（5.3 和 5.4 节）
+
 								rf.updateLeaderCommit()
 							} else {
-								// 回退 从上一个索引开始判断是否匹配
-								rf.nextIndex[peer] -= 1
+								// 自检 从上一个索引开始判断是否匹配
+								// rf.nextIndex[peer] -= 1
+								rf.nextIndex[peer] = reply.ConflictIndex
+								if reply.ConfilctTerm != -1 {
+									firstIndex := rf.getFirstLog().Index
+									for i := args.PreLogIndex; i >= firstIndex; i-- {
+										if rf.logs[i-firstIndex].Term == reply.ConfilctTerm {
+											rf.nextIndex[peer] = i + 1
+											break
+										}
+									}
+								}
 							}
 						}
 
@@ -637,11 +689,15 @@ func (rf *Raft) sendEntries() {
 
 func (rf *Raft) updateLeaderCommit() {
 	// 对matchIndex数组排序 然后求其中位数即可，中位数过了就算能commit了
-	sortMatchIndex := make([]int, len(rf.matchIndex))
+	l := len(rf.matchIndex)
+	sortMatchIndex := make([]int, l)
+
+	// sortMatchIndex := make([]int, len(rf.matchIndex))
 	copy(sortMatchIndex, rf.matchIndex)
+	sortMatchIndex[rf.me] = rf.getLastLog().Index
 	sort.Ints(sortMatchIndex)
 
-	newCommitIndex := sortMatchIndex[len(sortMatchIndex)/2+1]
+	newCommitIndex := sortMatchIndex[l/2]
 	if newCommitIndex > rf.commitIndex && newCommitIndex <= rf.getLastLog().Index && rf.logs[newCommitIndex-rf.getFirstLog().Index].Term == rf.currentTerm { //不是同一个任期那就不是我负责了
 		DPrintf("leader node {%d} term {%d} update commitIndex %d to %d\n", rf.me, rf.currentTerm, rf.commitIndex, newCommitIndex)
 		rf.commitIndex = newCommitIndex
@@ -655,9 +711,9 @@ func (rf *Raft) resetElectionTimeout() {
 }
 
 func randomElectionTime() time.Duration {
-	// 超时时间偏差 0 ~ 100 ms
+
 	ms := rand.Int63() % 100
-	// 超时计时器 300 ~ 400 ms
+
 	eleTime := time.Duration(ELECTION_TIMEOUT+ms) * time.Millisecond
 	return eleTime
 }

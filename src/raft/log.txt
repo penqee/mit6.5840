@@ -1,0 +1,149 @@
+Test (3C): basic persistence ...
+2024/08/09 20:20:43 node {1} term {0} start election
+2024/08/09 20:20:43 node {0} term {0} start election
+2024/08/09 20:20:43 node {2} term {0} start election
+panic: test timed out after 10m0s
+running tests:
+	TestPersist13C (10m0s)
+
+goroutine 5 [running]:
+testing.(*M).startAlarm.func1()
+	/home/penqee/.g/go/src/testing/testing.go:2366 +0x385
+created by time.goFunc
+	/home/penqee/.g/go/src/time/sleep.go:177 +0x2d
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0001529c0, {0x654eb7?, 0x0?}, 0x665610)
+	/home/penqee/.g/go/src/testing/testing.go:1750 +0x3ab
+testing.runTests.func1(0xc0001529c0)
+	/home/penqee/.g/go/src/testing/testing.go:2161 +0x37
+testing.tRunner(0xc0001529c0, 0xc00014dc70)
+	/home/penqee/.g/go/src/testing/testing.go:1689 +0xfb
+testing.runTests(0xc000118300, {0x8138c0, 0x1c, 0x1c}, {0x1?, 0x4fde8e?, 0x817dc0?})
+	/home/penqee/.g/go/src/testing/testing.go:2159 +0x445
+testing.(*M).Run(0xc00011e0a0)
+	/home/penqee/.g/go/src/testing/testing.go:2027 +0x68b
+main.main()
+	_testmain.go:101 +0x16c
+
+goroutine 18 [sync.Mutex.Lock]:
+sync.runtime_SemacquireMutex(0x0?, 0x21?, 0x1?)
+	/home/penqee/.g/go/src/runtime/sema.go:77 +0x25
+sync.(*Mutex).lockSlow(0xc00016c460)
+	/home/penqee/.g/go/src/sync/mutex.go:171 +0x15d
+sync.(*Mutex).Lock(...)
+	/home/penqee/.g/go/src/sync/mutex.go:90
+6.5840/raft.(*Raft).Start(0xc00016c460, {0x608ca0, 0x6a7130})
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:441 +0x77
+6.5840/raft.(*config).one(0xc000166140, {0x608ca0, 0x6a7130}, 0x3, 0x1)
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:570 +0x306
+6.5840/raft.TestPersist13C(0xc000152b60?)
+	/home/penqee/Desktop/mit/6.5840/src/raft/test_test.go:682 +0x8a
+testing.tRunner(0xc000152b60, 0x665610)
+	/home/penqee/.g/go/src/testing/testing.go:1689 +0xfb
+created by testing.(*T).Run in goroutine 1
+	/home/penqee/.g/go/src/testing/testing.go:1742 +0x390
+
+goroutine 19 [select]:
+6.5840/labrpc.MakeNetwork.func1()
+	/home/penqee/Desktop/mit/6.5840/src/labrpc/labrpc.go:153 +0xea
+created by 6.5840/labrpc.MakeNetwork in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/labrpc/labrpc.go:151 +0x196
+
+goroutine 20 [sync.Mutex.Lock]:
+sync.runtime_SemacquireMutex(0xc000010018?, 0xc0?, 0x411f9b?)
+	/home/penqee/.g/go/src/runtime/sema.go:77 +0x25
+sync.(*Mutex).lockSlow(0xc00016c1c0)
+	/home/penqee/.g/go/src/sync/mutex.go:171 +0x15d
+sync.(*Mutex).Lock(...)
+	/home/penqee/.g/go/src/sync/mutex.go:90
+6.5840/raft.(*Raft).persist(0xc00016c1c0)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:129 +0x45
+6.5840/raft.(*Raft).requestVotes(0xc00016c1c0)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:562 +0x4e
+6.5840/raft.(*Raft).ticker(0xc00016c1c0)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:491 +0x252
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:741 +0x365
+
+goroutine 21 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0xc00012d590, 0x0)
+	/home/penqee/.g/go/src/runtime/sema.go:569 +0x159
+sync.(*Cond).Wait(0x0?)
+	/home/penqee/.g/go/src/sync/cond.go:70 +0x85
+6.5840/raft.(*Raft).applyMsg(0xc00016c1c0)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:512 +0x285
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:742 +0x3a5
+
+goroutine 22 [chan receive]:
+6.5840/raft.(*config).applier(0xc000166140, 0x0, 0xc00010a360)
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:162 +0x6e
+created by 6.5840/raft.(*config).start1 in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:324 +0x62c
+
+goroutine 23 [sync.Mutex.Lock]:
+sync.runtime_SemacquireMutex(0xc000206000?, 0xc0?, 0x411f9b?)
+	/home/penqee/.g/go/src/runtime/sema.go:77 +0x25
+sync.(*Mutex).lockSlow(0xc00016c460)
+	/home/penqee/.g/go/src/sync/mutex.go:171 +0x15d
+sync.(*Mutex).Lock(...)
+	/home/penqee/.g/go/src/sync/mutex.go:90
+6.5840/raft.(*Raft).persist(0xc00016c460)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:129 +0x45
+6.5840/raft.(*Raft).requestVotes(0xc00016c460)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:562 +0x4e
+6.5840/raft.(*Raft).ticker(0xc00016c460)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:491 +0x252
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:741 +0x365
+
+goroutine 24 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0xc00012d890, 0x0)
+	/home/penqee/.g/go/src/runtime/sema.go:569 +0x159
+sync.(*Cond).Wait(0x0?)
+	/home/penqee/.g/go/src/sync/cond.go:70 +0x85
+6.5840/raft.(*Raft).applyMsg(0xc00016c460)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:512 +0x285
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:742 +0x3a5
+
+goroutine 25 [chan receive]:
+6.5840/raft.(*config).applier(0xc000166140, 0x1, 0xc00010a3c0)
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:162 +0x6e
+created by 6.5840/raft.(*config).start1 in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:324 +0x62c
+
+goroutine 26 [sync.Mutex.Lock]:
+sync.runtime_SemacquireMutex(0xc000110e40?, 0xc0?, 0x4119cc?)
+	/home/penqee/.g/go/src/runtime/sema.go:77 +0x25
+sync.(*Mutex).lockSlow(0xc00016c540)
+	/home/penqee/.g/go/src/sync/mutex.go:171 +0x15d
+sync.(*Mutex).Lock(...)
+	/home/penqee/.g/go/src/sync/mutex.go:90
+6.5840/raft.(*Raft).persist(0xc00016c540)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:129 +0x45
+6.5840/raft.(*Raft).requestVotes(0xc00016c540)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:562 +0x4e
+6.5840/raft.(*Raft).ticker(0xc00016c540)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:491 +0x252
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:741 +0x365
+
+goroutine 27 [sync.Cond.Wait]:
+sync.runtime_notifyListWait(0xc00012d9d0, 0x0)
+	/home/penqee/.g/go/src/runtime/sema.go:569 +0x159
+sync.(*Cond).Wait(0x0?)
+	/home/penqee/.g/go/src/sync/cond.go:70 +0x85
+6.5840/raft.(*Raft).applyMsg(0xc00016c540)
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:512 +0x285
+created by 6.5840/raft.Make in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/raft.go:742 +0x3a5
+
+goroutine 28 [chan receive]:
+6.5840/raft.(*config).applier(0xc000166140, 0x2, 0xc00010a420)
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:162 +0x6e
+created by 6.5840/raft.(*config).start1 in goroutine 18
+	/home/penqee/Desktop/mit/6.5840/src/raft/config.go:324 +0x62c
+exit status 2
+FAIL	6.5840/raft	600.013s
