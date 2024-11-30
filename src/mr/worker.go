@@ -1,24 +1,13 @@
 package mr
 
 import (
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"io/ioutil"
 	"log"
 	"net/rpc"
 	"os"
-	"sort"
 	"time"
 )
-
-// for sorting by key.
-type ByKey []KeyValue
-
-// for sorting by key.
-func (a ByKey) Len() int           { return len(a) }
-func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // Map functions return a slice of KeyValue.
 type KeyValue struct {
@@ -38,38 +27,41 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
-
-	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
 	for {
-		task := RequestTask()
-
-		switch task.Type {
+		req := CallTaskRequest()
+		switch req.Status {
 		case MAP:
-			DPrintln("map task ", task.FileName)
-			dealWithMapTask(&task, mapf)
-			TaskDone(task.ID)
-
+			DealWithMapTask(mapf, req)
+			CallTaskDone(req.Tid)
 		case REDUCE:
-			DPrintln("reduce task")
-			dealWithReduceTask(&task, reducef)
-			TaskDone(task.ID)
-
-		case NO_TASK:
-			break
+			DealWithReduceTask(reducef, req)
+			CallTaskDone(req.Tid)
 		case QUIT:
-			TaskDone(task.ID)
+			CallTaskDone(req.Tid)
 			time.Sleep(time.Second)
 			os.Exit(0)
+		case NONETASK:
+
 		default:
-			DPrintln("unknown task")
-
+			DebugPrintln("unknown task")
 		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
 
+	// switch {
+
+	// case MAP:
+	// 	DealWithMapTask(mapf, req)
+
+	// case REDUCE:
+	// 	DealWithReduceTask(reducef, req)
+
+	// case NONETASK:
+
+	// case QUIT:
+
+	// default:
+	// 	DebugPrintln("undefined task")
+	// }
 }
 
 // example function to show how to make an RPC call to the coordinator.
@@ -120,140 +112,29 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	return false
 }
 
-func RequestTask() Task {
-	args := RequestTaskArgs{}
-	reply := RequestTaskReply{}
+func CallTaskRequest() *Task {
+	args := &TaskRequestReq{}
+	reply := &TaskResponseResp{}
 
-	ok := call("Coordinator.RequestTask", &args, &reply)
+	ok := call("Coordinator.TaskRequest", args, reply)
 	if ok {
-		DPrintf("get Task %s successfully\n", reply.Task.Type)
+		DebugPrintln("reply = ", reply)
 	} else {
-		DPrintf("failed to get Task\n")
+		DebugPrintln("call failed\n")
 	}
 
 	return reply.Task
 }
 
-func TaskDone(id int) {
-	args := TaskDoneArgs{id}
-	reply := TaskDoneReply{}
+func CallTaskDone(tid int) {
+	args := &TaskDoneRequest{Tid: tid}
+	reply := &TaskDoneResponse{}
 
-	ok := call("Coordinator.TaskDone", &args, &reply)
+	ok := call("Coordinator.TaskDone", args, reply)
 	if ok {
-		DPrintf("send Task Done successfully\n")
+		DebugPrintln("successfully call")
 	} else {
-		DPrintf("failed to send Task Done \n")
+		DebugPrintln("failed to call")
 	}
 
-}
-
-func dealWithMapTask(task *Task, mapf func(string, string) []KeyValue) {
-	filename := task.FileName
-
-	file, err := os.Open(filename)
-	if err != nil {
-		log.Fatalf("can not open %v", filename)
-	}
-	// 读取文件内容
-	content, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Fatalf("can not read %v", filename)
-	}
-	file.Close()
-	// 执行map函数 得到kv对
-
-	kva := mapf(filename, string(content))
-	buckets := make(map[int][]KeyValue)
-	nReduce := task.NReduce
-	// 根据不同的key 放入不同的bucket
-	for _, kv := range kva {
-		index := ihash(kv.Key) % nReduce
-		buckets[index] = append(buckets[index], kv)
-	}
-
-	// 把不同bucket的内容写入文件中去
-	for i := 0; i < nReduce; i++ {
-		rFile, err := os.Create(getTempFileName(task.ID, i)) //taskID保证了每个任务不会写到同一个文件里
-		if err != nil {
-			log.Println("failed to create file")
-		}
-		enc := json.NewEncoder(rFile)
-		kvs := buckets[i]
-
-		for _, kv := range kvs {
-			if err := enc.Encode(kv); err != nil {
-				log.Println("failed to encode kv ,err:", err)
-			}
-		}
-
-	}
-}
-
-func dealWithReduceTask(task *Task, reducef func(string, []string) string) {
-	nMap := task.NMap
-	intermediate := make([]KeyValue, 0)
-
-	for i := 0; i < nMap; i++ {
-		rFile, err := os.Open(getTempFileName(i, task.ID))
-		if err != nil {
-			log.Println("failed to open file")
-		}
-
-		dec := json.NewDecoder(rFile)
-		for {
-			var kv KeyValue
-			if err := dec.Decode(&kv); err != nil {
-				break
-			}
-			intermediate = append(intermediate, kv)
-		}
-	}
-
-	sort.Sort(ByKey(intermediate))
-
-	// 创建输出文件
-	ofile, _ := os.Create(getOutputFileName(task.ID))
-
-	//
-	// call Reduce on each distinct key in intermediate[],
-	// and print the result to mr-out-0.
-	//
-	i := 0
-	for i < len(intermediate) {
-
-		j := i + 1
-
-		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
-			j++
-		}
-
-		values := []string{}
-		for k := i; k < j; k++ {
-			values = append(values, intermediate[k].Value)
-		}
-
-		output := reducef(intermediate[i].Key, values)
-
-		// this is the correct format for each line of Reduce output.
-
-		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
-
-		i = j
-	}
-
-	ofile.Close()
-
-	// 删除文件
-	for i := 0; i < nMap; i++ {
-		os.Remove(getTempFileName(i, task.ID))
-	}
-
-}
-
-func getTempFileName(mapNumber int, reduceNumber int) string {
-	return fmt.Sprintf("mr-%d-%d", mapNumber, reduceNumber)
-}
-
-func getOutputFileName(reduceNumber int) string {
-	return fmt.Sprintf("mr-out-%d", reduceNumber)
 }

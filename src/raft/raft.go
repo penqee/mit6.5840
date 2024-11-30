@@ -106,6 +106,10 @@ func (rf *Raft) GetState() (int, bool) {
 	term = rf.currentTerm
 	isleader = rf.identity == LEADER
 	rf.mu.Unlock()
+	rf.mu.Lock()
+	term = rf.currentTerm
+	isleader = rf.identity == LEADER
+	rf.mu.Unlock()
 	// Your code here (3A).
 	return term, isleader
 }
@@ -337,6 +341,7 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// ticker use to detect election time
 // ticker use to detect election time
 func (rf *Raft) ticker() {
 	for rf.killed() == false {
@@ -749,7 +754,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	DPrintf("%d %s  S%d  has been initialed at T%d", time.Now().Unix()%10000, dLeader, rf.me, rf.currentTerm)
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
+	DPrintf("server %d is inited\n", rf.me)
 	// start ticker goroutine to start elections
 	go rf.ticker()
 	// go rf.heartBeatTicker()

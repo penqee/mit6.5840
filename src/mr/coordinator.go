@@ -1,58 +1,65 @@
 package mr
 
 import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
 
-const Debug = false
+const DEBUG = false
 
-func DPrintln(a ...interface{}) {
-	if Debug {
-		log.Println(a...)
+func DebugPrintln(items ...interface{}) {
+	if DEBUG {
+		log.Println(items)
 	}
 }
 
-func DPrintf(format string, a ...interface{}) {
-	if Debug {
-		log.Printf(format, a...)
-	}
-}
+type ByKey []KeyValue
+
+// for sorting by key.
+func (a ByKey) Len() int           { return len(a) }
+func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
+
+const (
+	MAP      = "MAP"
+	REDUCE   = "REDUCE"
+	NONETASK = "NONETASK"
+	QUIT     = "QUIT"
+	TIMEOUT  = 10 * time.Second
+
+	//Deadline
+	NOALLOCATION = -1
+)
+
+type CoordinatorPhase string
 
 type Coordinator struct {
 	// Your definitions here.
-	state       string        // 阶段
-	nReduce     int           // reduce数量
-	nMap        int           // map数量
-	taskChannel chan *Task    // 通道
-	taskMap     map[int]*Task // 任务列表
-	mutex       sync.Mutex    // 锁
+	TaskChannel chan *Task
+	TaskMap     map[int]*Task
+	Stage       CoordinatorPhase
+	NMap        int
+	NReduce     int
+	Mutex       sync.Mutex
 }
 
-type TaskType string
-
-const (
-	MAP         = "map"
-	REDUCE      = "reduce"
-	NO_TASK     = "no_task"
-	QUIT        = "quit"
-	TIME_OUT    = 10 * time.Second
-	UNALLOCATED = -1
-)
-
 type Task struct {
-	ID       int
-	Type     TaskType
-	FileName string
+	Tid      int
+	File     string
+	Status   string
+	Deadline int
 	NReduce  int
 	NMap     int
-	Deadline int64
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -82,13 +89,15 @@ func (c *Coordinator) server() {
 // main/mrcoordinator.go calls Done() periodically to find out
 // if the entire job has finished.
 func (c *Coordinator) Done() bool {
-	ret := false
-	c.mutex.Lock()
-	ret = c.state == QUIT
-	c.mutex.Unlock()
+	// ret := false
+
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	return c.Stage == QUIT
+
 	// Your code here.
 
-	return ret
+	// return ret
 }
 
 // create a Coordinator.
@@ -96,117 +105,216 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{
-		nReduce:     nReduce,
-		nMap:        len(files),
-		taskChannel: make(chan *Task, int(math.Max(float64(len(files)), float64(nReduce)))),
-		taskMap:     make(map[int]*Task),
-		mutex:       sync.Mutex{},
-		state:       MAP,
+		TaskChannel: make(chan *Task, int(math.Max(float64(len(files)), float64(nReduce)))),
+		TaskMap:     make(map[int]*Task),
+		Stage:       MAP,
+		NMap:        len(files),
+		NReduce:     nReduce,
+		Mutex:       sync.Mutex{},
+	}
+
+	for i := 0; i < len(files); i++ {
+		c.DoMapTask(files[i], i)
 	}
 
 	// Your code here.
 
-	for i, filename := range files {
-
-		task := Task{
-			ID:       i,
-			Type:     MAP,
-			FileName: filename,
-			NReduce:  c.nReduce,
-			NMap:     c.nMap,
-			Deadline: UNALLOCATED,
-		}
-		c.taskChannel <- &task
-		c.taskMap[i] = &task
-	}
-	go c.detector()
+	go c.DetectError()
 
 	c.server()
 	return &c
 }
 
-func (c *Coordinator) detector() {
+func (c *Coordinator) DetectError() {
 	for {
-		c.mutex.Lock()
-		DPrintln("current task number ", len(c.taskMap))
-		if len(c.taskMap) == 0 {
-			c.changeState()
+		c.Mutex.Lock()
+		if len(c.TaskMap) != 0 {
+			for _, task := range c.TaskMap {
+
+				if task.Deadline < int(time.Now().Unix()) && task.Deadline != NOALLOCATION {
+					//at this time, the task go wrong
+					task.Deadline = NOALLOCATION
+					c.TaskChannel <- task
+				}
+
+			}
 		} else {
-			c.taskTimeout()
+			c.ConvertStatus()
 		}
-		c.mutex.Unlock()
-
-		time.Sleep(100 * time.Millisecond)
+		c.Mutex.Unlock()
 	}
 }
 
-func (c *Coordinator) taskTimeout() {
-	for _, task := range c.taskMap {
-		DPrintln(time.Now().Unix(), " ", task.Deadline)
-		if (task.Deadline != UNALLOCATED) && (time.Now().Unix() > task.Deadline) {
-			// 任务超时
-			task.Deadline = UNALLOCATED
-			c.taskChannel <- task
-			DPrintln(task)
+func (c *Coordinator) ConvertStatus() {
+	switch c.Stage {
+	case MAP:
+		c.Stage = REDUCE
+		for i := 0; i < c.NReduce; i++ {
+			c.DoReduceTask("", i)
 		}
-	}
-}
-
-func (c *Coordinator) changeState() {
-	if c.state == MAP {
-
-		c.state = REDUCE
-		c.taskMap = make(map[int]*Task)
-		for i := 0; i < c.nReduce; i++ {
-
-			task := Task{
-				ID:       i,
-				Type:     REDUCE,
-				NReduce:  c.nReduce,
-				NMap:     c.nMap,
-				Deadline: UNALLOCATED,
-			}
-			c.taskChannel <- &task
-			c.taskMap[i] = &task
+		DebugPrintln("map convert to reduce")
+	case REDUCE:
+		c.Stage = QUIT
+		for i := 0; i < c.NReduce; i++ {
+			c.DoQuitTask(i)
 		}
-		DPrintln("map convert to reduce")
-	} else if c.state == REDUCE {
-		c.state = QUIT
-		DPrintln("reduce convert to quit")
-		for i := 0; i < c.nReduce; i++ {
 
-			task := Task{
-				ID:       i,
-				Type:     QUIT,
-				NReduce:  c.nReduce,
-				NMap:     c.nMap,
-				Deadline: UNALLOCATED,
-			}
-			c.taskChannel <- &task
-			c.taskMap[i] = &task
-		}
-	} else if c.state == QUIT {
-		log.Println("coordinator exit")
+	case QUIT:
+		DebugPrintln("debug coordinator quit")
 		os.Exit(0)
+	default:
+		DebugPrintln("unknown status")
+
 	}
 }
 
-func (c *Coordinator) RequestTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
-	if len(c.taskMap) != 0 {
-		task := <-c.taskChannel
-		task.Deadline = time.Now().Add(TIME_OUT).Unix()
-		reply.Task = *task
-	} else {
-		reply.Task = Task{Type: NO_TASK}
+func (c *Coordinator) DoQuitTask(index int) {
+	task := &Task{
+		Tid:      index,
+		Status:   QUIT,
+		Deadline: NOALLOCATION,
+		NReduce:  c.NReduce,
+		NMap:     c.NMap,
 	}
+	c.TaskChannel <- task
+	c.TaskMap[index] = task
+}
+
+func (c *Coordinator) DoMapTask(file string, index int) {
+	task := &Task{
+		Tid:      index,
+		File:     file,
+		Status:   MAP,
+		Deadline: NOALLOCATION,
+		NReduce:  c.NReduce,
+		NMap:     c.NMap,
+	}
+	c.TaskChannel <- task
+	c.TaskMap[index] = task
+}
+
+func (c *Coordinator) DoReduceTask(file string, index int) {
+	task := &Task{
+		Tid:      index,
+		File:     file,
+		Status:   REDUCE,
+		Deadline: NOALLOCATION,
+		NReduce:  c.NReduce,
+		NMap:     c.NMap,
+	}
+	c.TaskChannel <- task
+	c.TaskMap[index] = task
+}
+
+func (c *Coordinator) TaskRequest(args *TaskRequestReq, reply *TaskResponseResp) error {
+	var task *Task
+	if len(c.TaskMap) != 0 {
+		task = <-c.TaskChannel
+		task.Deadline = int(time.Now().Add(TIMEOUT).Unix())
+		reply.Task = task
+		return nil
+	}
+	task.Status = NONETASK
+	reply = &TaskResponseResp{Task: task}
+	return nil
+
+}
+
+func DealWithMapTask(mapf func(string, string) []KeyValue, task *Task) {
+	intermediate := []KeyValue{}
+	file, err := os.Open(task.File)
+	if err != nil {
+		DebugPrintln("failed to open the file", task.File)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		DebugPrintln("failed to read the file", task.File)
+	}
+	file.Close()
+	kva := mapf(task.File, string(content))
+	intermediate = append(intermediate, kva...)
+
+	for i := 0; i < task.NReduce; i++ {
+		file, err := os.Create(GetTempFile(task.Tid, i))
+		if err != nil {
+			DebugPrintln("failed to create file")
+		}
+		encoder := json.NewEncoder(file)
+
+		for _, kv := range intermediate {
+			if ihash(kv.Key)%task.NReduce == i {
+				err = encoder.Encode(&kv)
+				if err != nil {
+					DebugPrintln("failed to encode")
+				}
+			}
+		}
+		file.Close()
+	}
+
+}
+
+func DealWithReduceTask(reducef func(string, []string) string, task *Task) {
+	intermediate := []KeyValue{}
+	for i := 0; i < task.NReduce; i++ {
+		file, err := os.Open(GetTempFile(task.Tid, i))
+		if err != nil {
+			DebugPrintln("failed to open the file", err)
+		}
+		decoder := json.NewDecoder(file)
+		var kv []KeyValue
+		if err = decoder.Decode(&kv); err != nil {
+			DebugPrintln("failed to read the file", err)
+		}
+		intermediate = append(intermediate, kv...)
+		file.Close()
+	}
+
+	sort.Sort(ByKey(intermediate))
+	ofile, err := os.Create(GetFinalFile(task.Tid))
+	if err != nil {
+		DebugPrintln("failed to create file", err)
+	}
+
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
+
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+
+		i = j
+	}
+
+	for i := 0; i < task.NReduce; i++ {
+		err = os.Remove(GetTempFile(task.Tid, i))
+		if err != nil {
+			DebugPrintln("failed to remove")
+		}
+	}
+	ofile.Close()
+}
+
+func (c *Coordinator) TaskDone(args *TaskDoneRequest, reply *TaskDoneResponse) error {
+	DebugPrintln("taskDone!")
+	c.Mutex.Lock()
+	defer c.Mutex.Unlock()
+	delete(c.TaskMap, args.Tid)
 	return nil
 }
 
-func (c *Coordinator) TaskDone(args *TaskDoneArgs, reply *TaskDoneReply) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	DPrintln("delete task ", args.ID)
-	delete(c.taskMap, args.ID)
+func GetTempFile(x, y int) string {
+	return fmt.Sprintf("mr-%d-%d", x, y)
+}
 
-	return nil
+func GetFinalFile(x int) string {
+	return fmt.Sprintf("mr-out-%d", x)
 }
